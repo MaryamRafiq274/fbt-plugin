@@ -1,111 +1,108 @@
-jQuery(document).ready(function($) {
+jQuery(document).ready(function ($) {
     function updateTotalPrice() {
         let total = 0;
-        let shipping = 0;
-        let hasShipping = false;
+        let selectedProducts = {};
 
-        $('.fbt-checkbox:checked').each(function() {
-            let productId = $(this).data('product_id');
-            let variationSelect = $('.fbt-variation[data-product_id="' + productId + '"]');
-            let variationId = variationSelect.val();
-            let variationPrice = variationSelect.find(':selected').data('price');
+        $('.fbt-checkbox:checked').each(function () {
+            let $checkbox = $(this);
+            let productId = $checkbox.data('product_id');
+            let basePrice = parseFloat($checkbox.data('price')) || 0;
+            let hasVariations = $('.fbt-variations[data-product_id="' + productId + '"] select.fbt-variation').length > 0;
 
-            // Only add the price if a valid variation is selected
-            if (variationSelect.length > 0 && variationId) {
-                total += parseFloat(variationPrice);
-            } else if (!variationSelect.length) {
-                total += parseFloat($(this).data('price'));
+            // Initialize product entry
+            if (!selectedProducts[productId]) {
+                selectedProducts[productId] = {
+                    basePrice: hasVariations ? 0 : basePrice, // Include base price only if no variations exist
+                    variationsTotal: 0
+                };
             }
 
-            let productShipping = $(this).data('shipping') || 0;
-            if (productShipping > 0) {
-                hasShipping = true;
-                shipping += parseFloat(productShipping);
-            }
-        });
-
-        let totalPrice = total + shipping;
-        $('#fbt-total-price').html('€' + totalPrice.toFixed(2));
-
-        let heading = $('#fbt-heading');
-        if (totalPrice > 50) {
-            heading.text('Frequently Bought Together (with free shipping)');
-        } else if (hasShipping) {
-            heading.text('Frequently Bought Together (with shipping)');
-        } else {
-            heading.text('Frequently Bought Together');
-        }
-    }
-
-    // Reset dropdown and update price
-    $('.fbt-variation').each(function() {
-        $(this).prop('selectedIndex', 0); // Ensure "Select Size" is selected
-    });
-
-    $('.fbt-checkbox, .fbt-variation').on('change', function() {
-        updateTotalPrice();
-    });
-
-    $('.add-to-cart').click(function() {
-        let productId = $(this).data('product_id');
-        let variationSelect = $('.fbt-variation[data-product_id="' + productId + '"]');
-        let variationId = variationSelect.val();
-
-        $.ajax({
-            type: 'POST',
-            url: fbt_ajax.ajax_url,
-            data: {
-                action: 'fbt_add_to_cart',
-                product_id: productId,
-                variation_id: variationId || ''
-            },
-            success: function(response) {
-                if (response.success) {
-                    alert(response.data.message);
-                    $(document.body).trigger('wc_fragment_refresh');
-                } else {
-                    alert('Error adding to cart');
+            // Find the corresponding variation dropdowns and add selected prices
+            $('.fbt-variations[data-product_id="' + productId + '"] select.fbt-variation').each(function () {
+                let selectedPrice = parseFloat($(this).find(':selected').attr('data-price')) || 0;
+                if (selectedPrice > 0) {
+                    selectedProducts[productId].variationsTotal += selectedPrice;
                 }
-            }
-        });
-    });
-
-    $('#add-all-to-cart').click(function() {
-        let product_data = [];
-
-        $('.fbt-checkbox:checked').each(function() {
-            let productId = $(this).data('product_id');
-            let variationSelect = $('.fbt-variation[data-product_id="' + productId + '"]');
-            let variationId = variationSelect.val();
-
-            product_data.push({
-                product_id: productId,
-                variation_id: variationId || 0
             });
         });
 
-        if (product_data.length === 0) {
+        // Calculate the final total
+        $.each(selectedProducts, function (productId, productData) {
+            let productTotal = productData.variationsTotal > 0 ? productData.variationsTotal : productData.basePrice;
+            total += productTotal;
+        });
+
+        console.log("Updated Total Price:", total); // Debugging
+        $('#fbt-total-price').html('<span class="woocommerce-Price-amount amount">€' + total.toFixed(2) + '</span>');
+    }
+
+    // Update total price when a checkbox or variation dropdown changes
+    $(document).on('change', '.fbt-checkbox, .fbt-variation', function () {
+        updateTotalPrice();
+    });
+
+    // AJAX: Add all selected products to cart
+    $('#add-all-to-cart').click(function () {
+        let productData = [];
+        let $button = $(this);
+    
+        $('.fbt-checkbox:checked').each(function () {
+            let $checkbox = $(this);
+            let productId = $checkbox.data('product_id');
+            let variations = {};
+            
+            // Capture selected variations
+            $('.fbt-variations[data-product_id="' + productId + '"] select.fbt-variation').each(function () {
+                let attrName = $(this).data('attribute');
+                let attrValue = $(this).val();
+                
+                if (attrValue) {
+                    variations[attrName] = attrValue;
+                }
+            });
+    
+            productData.push({
+                product_id: productId,
+                variations: variations
+            });
+        });
+    
+        if (productData.length === 0) {
             alert('Please select at least one product.');
             return;
         }
-
+    
+        console.log("Sending product data:", productData); // DEBUGGING LINE
+    
+        $button.prop('disabled', true).text('Adding...');
+    
         $.ajax({
             type: 'POST',
             url: fbt_ajax.ajax_url,
             data: {
                 action: 'fbt_add_all_to_cart',
-                product_data: JSON.stringify(product_data)
+                product_data: JSON.stringify(productData)
             },
-            success: function(response) {
+            success: function (response) {
+                console.log("Response from server:", response); // DEBUGGING LINE
+    
                 if (response.success) {
                     alert(response.data.message);
-                    $(document.body).trigger('wc_fragment_refresh');
+                    $(document.body).trigger('wc_fragment_refresh'); // Refresh cart
                 } else {
-                    alert('Error adding products to cart.');
+                    alert(response.data.message || 'Error adding products to cart.');
                 }
+            },
+            error: function () {
+                alert('An unexpected error occurred.');
+            },
+            complete: function () {
+                $button.prop('disabled', false).text('Add All to Cart');
             }
         });
     });
+    
 
+    // Run initially to set correct price
     updateTotalPrice();
 });
