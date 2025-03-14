@@ -265,58 +265,65 @@ function fbt_add_meta_box() {
 add_action('add_meta_boxes', 'fbt_add_meta_box');
 
 // Meta box callback function
+// Meta Box Callback Function
 function fbt_meta_box_callback($post) {
     $fbt_products = get_post_meta($post->ID, '_fbt_products', true) ?: [];
     $all_products = wc_get_products(['limit' => -1]);
 
-    // Ensure main product is always displayed
+    // Main product (always displayed)
     $main_product_id = $post->ID;
 
     echo '<p><strong>Main Product:</strong> ' . get_the_title($main_product_id) . '</p>';
 
+    // Selected Products Display Area
     echo '<div id="selected-products">';
     if (!empty($fbt_products)) {
         foreach ($fbt_products as $product_id) {
-            echo '<span class="selected-product" data-id="' . $product_id . '">'
-                . get_the_title($product_id)
+            echo '<span class="selected-product" data-id="' . esc_attr($product_id) . '">'
+                . esc_html(get_the_title($product_id))
                 . ' <span class="remove-product" style="cursor:pointer; color:red;">✖</span></span>';
         }
     }
     echo '</div>';
 
+    // Dropdown to Select Products
     echo '<select id="fbt-products-select" style="width:100%;">';
     echo '<option value="">Select a product</option>';
     foreach ($all_products as $product) {
         if ($product->get_id() == $main_product_id) continue; // Skip main product
-        echo '<option value="' . $product->get_id() . '">' . $product->get_name() . '</option>';
+        echo '<option value="' . esc_attr($product->get_id()) . '">' . esc_html($product->get_name()) . '</option>';
     }
     echo '</select>';
 
-    echo '<input type="hidden" name="fbt_products" id="fbt-products-hidden" value="' . implode(',', $fbt_products) . '">';
+    // Hidden Input to Store Selected Products
+    echo '<input type="hidden" name="fbt_products" id="fbt-products-hidden" value="' . esc_attr(implode(',', $fbt_products)) . '">';
 
-    // JavaScript for selecting/removing products
+    // JavaScript for Managing Selection and Removal
     ?>
     <script>
     jQuery(document).ready(function ($) {
         let selectedProducts = $('#fbt-products-hidden').val().split(',').filter(Boolean);
         
+        // Add Product to Selection
         $('#fbt-products-select').on('change', function () {
             let productId = $(this).val();
             let productName = $(this).find('option:selected').text();
 
             if (productId && !selectedProducts.includes(productId) && selectedProducts.length < 2) {
                 selectedProducts.push(productId);
-                $('#selected-products').append(
-                    <span class="selected-product" data-id="${productId}">${productName} 
+                $('#selected-products').append(`
+                    <span class="selected-product" data-id="${productId}">
+                        ${productName} 
                         <span class="remove-product" style="cursor:pointer; color:red;">✖</span>
                     </span>
-                );
+                `);
                 updateHiddenField();
             } else if (selectedProducts.length >= 2) {
                 alert('You can select a maximum of 2 additional products.');
             }
         });
 
+        // Remove Selected Product
         $(document).on('click', '.remove-product', function () {
             let productId = $(this).parent().data('id');
             selectedProducts = selectedProducts.filter(id => id !== String(productId));
@@ -324,11 +331,13 @@ function fbt_meta_box_callback($post) {
             updateHiddenField();
         });
 
+        // Update Hidden Input Field
         function updateHiddenField() {
             $('#fbt-products-hidden').val(selectedProducts.join(','));
         }
     });
     </script>
+
     <style>
         #selected-products { margin-top: 10px; }
         .selected-product {
@@ -342,7 +351,7 @@ function fbt_meta_box_callback($post) {
     <?php
 }
 
-// Save selected products (excluding main product)
+// Save Selected Products (Excluding Main Product)
 function fbt_save_meta_box($post_id) {
     if (isset($_POST['fbt_products'])) {
         $selected_products = explode(',', sanitize_text_field($_POST['fbt_products']));
