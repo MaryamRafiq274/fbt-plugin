@@ -103,8 +103,6 @@ jQuery(document).ready(function ($) {
             }
         });
     });
-    
-    
 
     // Run initially to set correct price
     updateTotalPrice();
