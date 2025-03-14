@@ -51,13 +51,15 @@ jQuery(document).ready(function ($) {
             let productId = $checkbox.data('product_id');
             let variations = {};
             
-            // Capture selected variations
+            // Capture all selected variations
             $('.fbt-variations[data-product_id="' + productId + '"] select.fbt-variation').each(function () {
                 let attrName = $(this).data('attribute');
                 let attrValue = $(this).val();
                 
                 if (attrValue) {
                     variations[attrName] = attrValue;
+                } else {
+                    console.warn("Variation missing for product:", productId, "Attribute:", attrName);
                 }
             });
     
@@ -72,7 +74,7 @@ jQuery(document).ready(function ($) {
             return;
         }
     
-        console.log("Sending product data:", productData); // DEBUGGING LINE
+        console.log("🚀 Sending product data:", JSON.stringify(productData, null, 2)); // ✅ Log to console
     
         $button.prop('disabled', true).text('Adding...');
     
@@ -84,7 +86,7 @@ jQuery(document).ready(function ($) {
                 product_data: JSON.stringify(productData)
             },
             success: function (response) {
-                console.log("Response from server:", response); // DEBUGGING LINE
+                console.log("✅ Response from server:", response); // ✅ Log to console
     
                 if (response.success) {
                     alert(response.data.message);
@@ -101,6 +103,7 @@ jQuery(document).ready(function ($) {
             }
         });
     });
+    
     
 
     // Run initially to set correct price
