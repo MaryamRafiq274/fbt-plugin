@@ -70,24 +70,34 @@ function fbt_display_section() {
                 echo '<label>' . esc_html($attribute_label) . '</label>';
                 echo '<select class="fbt-variation" data-attribute="' . esc_attr($attribute_name) . '" data-product_id="' . esc_attr($fbt_product_id) . '">';
                 echo '<option value="">' . __('Select', 'frequently-bought-together') . ' ' . esc_html($attribute_label) . '</option>';
-
+            
                 foreach ($attribute->get_options() as $option) {
                     $variation_price = '';
-
+            
                     foreach ($variations as $variation) {
                         if (isset($variation['attributes']['attribute_' . $attribute_name]) && $variation['attributes']['attribute_' . $attribute_name] == $option) {
-                            $variation_price = wc_get_price_to_display($fbt_product, ['price' => $variation['display_price']]);
+                            // Only set price if this is the size attribute
+                            if (strpos($attribute_name, 'size') !== false) {
+                                $variation_price = wc_get_price_to_display($fbt_product, ['price' => $variation['display_price']]);
+                            }
                             break;
                         }
                     }
-
+            
                     echo '<option value="' . esc_attr($option) . '" data-price="' . esc_attr($variation_price) . '">';
-                    echo esc_html($option) . ' - ' . wc_price($variation_price);
+                    echo esc_html($option);
+            
+                    // Only show price if this is a size variation and has a valid price
+                    if (!empty($variation_price) && $variation_price > 0 && strpos($attribute_name, 'size') !== false) {
+                        echo ' - ' . wc_price($variation_price);
+                    }
+            
                     echo '</option>';
                 }
-
+            
                 echo '</select>';
             }
+            
 
             echo '</div>'; // Close .fbt-variations
         }
@@ -101,6 +111,7 @@ function fbt_display_section() {
     echo '</div>'; // Close .fbt-section
 }
 add_action('woocommerce_after_single_product', 'fbt_display_section', 15);
+
 
 // AJAX: Add single product to cart
 function fbt_ajax_add_to_cart() {
@@ -124,8 +135,7 @@ add_action('wp_ajax_fbt_add_to_cart', 'fbt_ajax_add_to_cart');
 add_action('wp_ajax_nopriv_fbt_add_to_cart', 'fbt_ajax_add_to_cart');
 
 // AJAX: Add all selected products to cart
-add_action('wp_ajax_fbt_add_all_to_cart', 'fbt_ajax_add_all_to_cart');
-add_action('wp_ajax_nopriv_fbt_add_all_to_cart', 'fbt_ajax_add_all_to_cart');
+
 
 function fbt_ajax_add_all_to_cart() {
     if (!isset($_POST['product_data'])) {
@@ -164,57 +174,82 @@ function fbt_ajax_add_all_to_cart() {
     wp_send_json_success(['message' => 'Products added to cart successfully']);
 }
 
+add_action('wp_ajax_fbt_add_all_to_cart', 'fbt_add_all_to_cart');
+add_action('wp_ajax_nopriv_fbt_add_all_to_cart', 'fbt_add_all_to_cart');
 
-function find_matching_variation_id($product_id, $variations) {
-    $product = wc_get_product($product_id);
-    if (!$product || !$product->is_type('variable')) {
-        error_log("Product ID: {$product_id} is not a variable product or doesn't exist.");
-        return 0;
+function fbt_add_all_to_cart() {
+    if (!isset($_POST['product_data'])) {
+        wp_send_json_error(['message' => 'No product data received.']);
+        return;
     }
 
-    $available_variations = $product->get_available_variations();
+    $product_data = json_decode(stripslashes($_POST['product_data']), true);
 
-    if (empty($available_variations)) {
-        error_log("No variations found for Product ID: {$product_id}");
-        return 0;
+    if (empty($product_data)) {
+        wp_send_json_error(['message' => 'Empty product data.']);
+        return;
     }
 
-    error_log("User selected variations: " . print_r($variations, true));
+    error_log("🔥 Received product data: " . print_r($product_data, true)); // ✅ Debug log
 
-    foreach ($available_variations as $variation) {
-        $match = true;
+    $added_count = 0;
 
-        error_log("Checking Variation ID: {$variation['variation_id']} - Attributes: " . print_r($variation['attributes'], true));
+    foreach ($product_data as $item) {
+        $product_id = intval($item['product_id']);
+        $variations = $item['variations'] ?? [];
 
-        foreach ($variations as $attribute => $value) {
-            $attribute_key = 'attribute_' . sanitize_title($attribute);
-            $selected_value = sanitize_title($value);
-
-            // Check if the attribute exists in this variation
-            if (!isset($variation['attributes'][$attribute_key])) {
-                error_log("Attribute {$attribute_key} missing in variation ID: {$variation['variation_id']}, skipping...");
-                continue;
-            }
-
-            $variation_value = sanitize_title($variation['attributes'][$attribute_key]);
-
-            if ($variation_value !== $selected_value) {
-                error_log("Mismatch: User selected {$selected_value}, but variation has {$variation_value}");
-                $match = false;
-                break;
-            }
+        // Find correct variation ID if it's a variable product
+        $variation_id = find_matching_variation_id($product_id, $variations);
+        if ($variation_id) {
+            $added = WC()->cart->add_to_cart($product_id, 1, $variation_id, $variations);
+        } else {
+            $added = WC()->cart->add_to_cart($product_id, 1);
         }
 
-        if ($match) {
-            error_log("MATCH FOUND! Variation ID: {$variation['variation_id']}");
-            return $variation['variation_id'];
+        error_log("📌 Adding to cart: Product ID: $product_id, Variation ID: $variation_id, Status: " . ($added ? 'Success' : 'Failed'));
+
+        if ($added) {
+            $added_count++;
         }
     }
 
-    error_log("No matching variation found.");
-    return 0;
+    if ($added_count > 0) {
+        wp_send_json_success(['message' => 'Products added to cart.']);
+    } else {
+        wp_send_json_error(['message' => 'Failed to add products to cart.']);
+    }
 }
 
+
+function find_matching_variation_id($product_id, $selected_variations) {
+    $product = wc_get_product($product_id);
+    if (!$product || !$product->is_type('variable')) {
+        return 0; // Not a variable product
+    }
+
+    $variations = $product->get_available_variations();
+    
+    foreach ($variations as $variation) {
+        $match = true;
+        
+        foreach ($selected_variations as $attribute => $value) {
+            $attr_key = 'attribute_' . sanitize_title($attribute);
+
+            // Ensure we check only attributes that exist in the variation
+            if (isset($variation['attributes'][$attr_key])) {
+                if (strtolower($variation['attributes'][$attr_key]) !== strtolower($value)) {
+                    $match = false;
+                    break;
+                }
+            }
+        }
+        
+        if ($match) {
+            return $variation['variation_id']; // Return matched variation ID
+        }
+    }
+    return 0; // No match found
+}
 
 
 // Add meta box in product editor
